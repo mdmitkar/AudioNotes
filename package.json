@@ -1,0 +1,22 @@
+{
+  "name": "revisecast",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/backend",
+    "apps/mobile",
+    "packages/shared-types"
+  ],
+  "scripts": {
+    "backend": "npm run dev --workspace=apps/backend",
+    "mobile": "npm run start --workspace=apps/mobile",
+    "dev": "concurrently \"npm run backend\" \"npm run mobile\"",
+    "install:all": "npm install"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "dependencies": {
+    "mongoose": "^9.9.3"
+  }
+}

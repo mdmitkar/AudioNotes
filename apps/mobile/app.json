@@ -1,0 +1,34 @@
+﻿{
+  "expo": {
+    "name": "ReviseCast",
+    "slug": "revisecast",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.revisecast.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#111827",
+        "foregroundImage": "./assets/adaptive-icon.png"
+      },
+      "package": "com.revisecast.app"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      [
+        "expo-av",
+        {
+          "microphonePermission": "ReviseCast needs microphone access for recording (not required for listening)."
+        }
+      ]
+    ],
+    "scheme": "revisecast"
+  }
+}
