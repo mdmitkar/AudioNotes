@@ -1,1 +1,11 @@
-node_modules
+﻿node_modules/
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.expo/
+dist/
+web-build/
+uploads/
+*.tsbuildinfo
