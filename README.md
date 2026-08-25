@@ -93,7 +93,7 @@ cd apps/mobile
 npx expo start
 # → Press 'w' for web browser (no Android Studio required!)
 # → Scan QR with Expo Go app for mobile
-`
+`cool work
 
 ## Demo Accounts
 
