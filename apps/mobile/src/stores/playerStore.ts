@@ -1,5 +1,9 @@
 ﻿import { create } from "zustand";
-import { Audio, AVPlaybackStatus } from "expo-av";
+import {
+  createAudioPlayer,
+  setAudioModeAsync,
+  type AudioPlayer,
+} from "expo-audio";
 import { progressApi } from "../api";
 
 export interface Episode {
@@ -23,7 +27,7 @@ interface PlayerState {
   position: number;
   duration: number;
   speed: number;
-  soundObject: Audio.Sound | null;
+  soundObject: AudioPlayer | null;
   showFullPlayer: boolean;
 
   loadEpisode: (episode: Episode, startPosition?: number) => Promise<void>;
@@ -40,6 +44,7 @@ interface PlayerState {
 }
 
 let progressInterval: ReturnType<typeof setInterval> | null = null;
+let statusSubscription: { remove: () => void } | null = null;
 
 export const usePlayerStore = create<PlayerState>((set, get) => ({
   episode: null,
@@ -54,51 +59,82 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   loadEpisode: async (episode, startPosition = 0) => {
     const { soundObject, saveProgress } = get();
 
-    // Save progress of current episode before switching
+    // Save current episode progress before switching
     if (soundObject) {
       await saveProgress();
-      await soundObject.unloadAsync();
-      if (progressInterval) { clearInterval(progressInterval); progressInterval = null; }
+
+      if (statusSubscription) {
+        statusSubscription.remove();
+        statusSubscription = null;
+      }
+
+      soundObject.remove();
+
+      if (progressInterval) {
+        clearInterval(progressInterval);
+        progressInterval = null;
+      }
     }
 
     if (!episode.audioUrl) {
-      set({ episode, isPlaying: false });
+      set({
+        episode,
+        soundObject: null,
+        isPlaying: false,
+        isLoading: false,
+      });
       return;
     }
 
-    set({ episode, isLoading: true, position: startPosition, isPlaying: false });
+    set({
+      episode,
+      isLoading: true,
+      position: startPosition,
+      isPlaying: false,
+    });
 
     try {
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        staysActiveInBackground: true,
-        playsInSilentModeIOS: true,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
+      await setAudioModeAsync({
+        playsInSilentMode: true,
+        shouldPlayInBackground: true,
+        interruptionMode: "duckOthers",
       });
 
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: episode.audioUrl },
-        {
-          shouldPlay: true,
-          rate: get().speed,
-          positionMillis: startPosition * 1000,
-        },
-        (status: AVPlaybackStatus) => {
-          if (!status.isLoaded) return;
+      const player = createAudioPlayer({
+        uri: episode.audioUrl,
+      });
+
+      // expo-audio works in seconds, unlike expo-av's milliseconds
+      if (startPosition > 0) {
+        await player.seekTo(startPosition);
+      }
+
+      player.playbackRate = get().speed;
+
+      statusSubscription = player.addListener(
+        "playbackStatusUpdate",
+        (status) => {
           set({
-            position: Math.floor(status.positionMillis / 1000),
-            duration: Math.floor((status.durationMillis || 0) / 1000),
-            isPlaying: status.isPlaying,
-            isLoading: false,
+            position: Math.floor(status.currentTime || 0),
+            duration: Math.floor(status.duration || 0),
+            isPlaying: status.playing,
+            isLoading: !status.isLoaded,
           });
+
           if (status.didJustFinish) {
             get().saveProgress();
           }
         }
       );
 
-      set({ soundObject: sound, isLoading: false, isPlaying: true });
+      set({
+        soundObject: player,
+        isLoading: false,
+      });
+
+      player.play();
+
+      set({ isPlaying: true });
 
       // Auto-save progress every 10 seconds
       progressInterval = setInterval(() => {
@@ -106,69 +142,97 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       }, 10000);
     } catch (err) {
       console.error("Failed to load audio:", err);
-      set({ isLoading: false });
+
+      set({
+        isLoading: false,
+        isPlaying: false,
+      });
     }
   },
 
   play: async () => {
     const { soundObject } = get();
+
     if (soundObject) {
-      await soundObject.playAsync();
+      soundObject.play();
       set({ isPlaying: true });
     }
   },
 
   pause: async () => {
     const { soundObject } = get();
+
     if (soundObject) {
-      await soundObject.pauseAsync();
+      soundObject.pause();
       set({ isPlaying: false });
-      get().saveProgress();
+
+      await get().saveProgress();
     }
   },
 
   togglePlay: async () => {
     const { isPlaying } = get();
-    if (isPlaying) await get().pause();
-    else await get().play();
+
+    if (isPlaying) {
+      await get().pause();
+    } else {
+      await get().play();
+    }
   },
 
   seekTo: async (positionSeconds) => {
     const { soundObject } = get();
+
     if (soundObject) {
-      await soundObject.setPositionAsync(positionSeconds * 1000);
+      await soundObject.seekTo(positionSeconds);
       set({ position: positionSeconds });
     }
   },
 
   seekForward: async (seconds = 30) => {
     const { position, duration } = get();
+
     const newPos = Math.min(position + seconds, duration);
+
     await get().seekTo(newPos);
   },
 
   seekBackward: async (seconds = 15) => {
     const { position } = get();
+
     const newPos = Math.max(position - seconds, 0);
+
     await get().seekTo(newPos);
   },
 
   setSpeed: async (speed) => {
     const { soundObject } = get();
+
     set({ speed });
+
     if (soundObject) {
-      await soundObject.setRateAsync(speed, true);
+      soundObject.playbackRate = speed;
     }
   },
 
-  setShowFullPlayer: (show) => set({ showFullPlayer: show }),
+  setShowFullPlayer: (show) => {
+    set({ showFullPlayer: show });
+  },
 
   saveProgress: async () => {
     const { episode, position, duration } = get();
+
     if (!episode || position <= 0) return;
+
     try {
-      const completed = duration > 0 && position >= duration * 0.9;
-      await progressApi.save(episode._id, position, completed);
+      const completed =
+        duration > 0 && position >= duration * 0.9;
+
+      await progressApi.save(
+        episode._id,
+        position,
+        completed
+      );
     } catch {
       // Silently fail - do not interrupt playback
     }
@@ -176,11 +240,29 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   unload: async () => {
     const { soundObject, saveProgress } = get();
+
     if (soundObject) {
       await saveProgress();
-      await soundObject.unloadAsync();
-      if (progressInterval) { clearInterval(progressInterval); progressInterval = null; }
+
+      if (statusSubscription) {
+        statusSubscription.remove();
+        statusSubscription = null;
+      }
+
+      soundObject.remove();
+
+      if (progressInterval) {
+        clearInterval(progressInterval);
+        progressInterval = null;
+      }
     }
-    set({ episode: null, soundObject: null, isPlaying: false, position: 0, duration: 0 });
+
+    set({
+      episode: null,
+      soundObject: null,
+      isPlaying: false,
+      position: 0,
+      duration: 0,
+    });
   },
 }));

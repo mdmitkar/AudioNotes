@@ -7,7 +7,7 @@
     "apps/mobile",
     "packages/shared-types"
   ],
-  "scripts": {
+    "scripts": {
     "backend": "npm run dev --workspace=apps/backend",
     "mobile": "npm run start --workspace=apps/mobile",
     "dev": "concurrently \"npm run backend\" \"npm run mobile\"",
