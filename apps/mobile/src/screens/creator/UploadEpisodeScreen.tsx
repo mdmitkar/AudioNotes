@@ -1,15 +1,18 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Switch, Alert, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Switch, Alert, ActivityIndicator, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { creatorApi, examApi, subjectApi, topicApi } from "../../api";
 import { Colors, Typography, Spacing, Radius } from "../../theme";
+import { Audio } from "expo-av";
+import { createAudioPlayer } from "expo-audio";
 
 const STEPS = ["Audio", "Title", "Description", "Exam", "Subject", "Topic", "Thumbnail", "Free/Premium", "Review", "Submit"];
 
 export function UploadEpisodeScreen() {
   const nav = useNavigation<any>();
   const [step, setStep] = useState(0);
+  const [uploadMode, setUploadMode] = useState<"record" | "file">("record");
   const [form, setForm] = useState({
     title: "", description: "", examId: "", subjectId: "", topicId: "",
     duration: "", isPremium: false, difficulty: "intermediate", whatYoullLearn: "",
@@ -19,23 +22,205 @@ export function UploadEpisodeScreen() {
   const [topics, setTopics] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // Recorder states
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [recordedUri, setRecordedUri] = useState<string | null>(null);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+
+  // Preview Player states
+  const [previewPlayer, setPreviewPlayer] = useState<any>(null);
+  const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
+  const [previewPosition, setPreviewPosition] = useState(0);
+
   useEffect(() => {
     examApi.list().then(r => { if (r.success) setExams(r.data); });
   }, []);
 
   useEffect(() => {
     if (form.examId) {
-      examApi.subjects(form.examId).then(r => { if (r.success) setSubjects(r.data); setForm(f => ({ ...f, subjectId: "", topicId: "" })); });
+      examApi.subjects(form.examId).then(r => { 
+        if (r.success) setSubjects(r.data); 
+        setForm(f => ({ ...f, subjectId: "", topicId: "" })); 
+      });
     }
   }, [form.examId]);
 
   useEffect(() => {
-    if (form.subjectId) subjectApi.topics(form.subjectId).then(r => { if (r.success) setTopics(r.data); setForm(f => ({ ...f, topicId: "" })); });
+    if (form.subjectId) {
+      subjectApi.topics(form.subjectId).then(r => { 
+        if (r.success) setTopics(r.data); 
+        setForm(f => ({ ...f, topicId: "" })); 
+      });
+    }
   }, [form.subjectId]);
+
+  // Clean up recording and audio resources
+  useEffect(() => {
+    return () => {
+      if (recording) {
+        recording.stopAndUnloadAsync().catch(() => {});
+      }
+      if (previewPlayer) {
+        previewPlayer.remove();
+      }
+    };
+  }, [recording, previewPlayer]);
+
+  // Timer effect when recording
+  useEffect(() => {
+    let interval: any = null;
+    if (isRecording && !isPaused) {
+      interval = setInterval(() => {
+        setRecordingDuration(d => d + 1);
+      }, 1000);
+    } else {
+      clearInterval(interval);
+    }
+    return () => clearInterval(interval);
+  }, [isRecording, isPaused]);
 
   const update = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
 
+  // Recorder operations
+  const startRecording = async () => {
+    try {
+      const permission = await Audio.requestPermissionsAsync();
+      if (permission.status !== "granted") {
+        Alert.alert("Permission Denied", "Microphone access is required to record audio.");
+        return;
+      }
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      if (previewPlayer) {
+        previewPlayer.remove();
+        setPreviewPlayer(null);
+        setIsPreviewPlaying(false);
+        setPreviewPosition(0);
+      }
+
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+      setRecording(recording);
+      setIsRecording(true);
+      setIsPaused(false);
+      setRecordingDuration(0);
+      setRecordedUri(null);
+    } catch (err) {
+      console.error("Failed to start recording", err);
+      Alert.alert("Error", "Failed to start recording. Please try again.");
+    }
+  };
+
+  const pauseRecording = async () => {
+    if (!recording) return;
+    try {
+      await recording.pauseAsync();
+      setIsPaused(true);
+    } catch (err) {
+      console.error("Failed to pause recording", err);
+    }
+  };
+
+  const resumeRecording = async () => {
+    if (!recording) return;
+    try {
+      await recording.startAsync();
+      setIsPaused(false);
+    } catch (err) {
+      console.error("Failed to resume recording", err);
+    }
+  };
+
+  const stopRecording = async () => {
+    if (!recording) return;
+    try {
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+      setRecordedUri(uri);
+      setRecording(null);
+      setIsRecording(false);
+      setIsPaused(false);
+
+      // Auto-populate duration in minutes (round up to nearest minute)
+      const calculatedDurationMin = Math.max(1, Math.round(recordingDuration / 60));
+      update("duration", String(calculatedDurationMin));
+    } catch (err) {
+      console.error("Failed to stop recording", err);
+    }
+  };
+
+  const playPreview = async () => {
+    if (!recordedUri) return;
+    try {
+      if (previewPlayer) {
+        previewPlayer.play();
+        setIsPreviewPlaying(true);
+        return;
+      }
+
+      const player = createAudioPlayer({
+        uri: recordedUri,
+      });
+
+      player.addListener("playbackStatusUpdate", (status) => {
+        setIsPreviewPlaying(status.playing);
+        setPreviewPosition(Math.floor(status.currentTime || 0));
+        if (status.didJustFinish) {
+          setIsPreviewPlaying(false);
+          setPreviewPosition(0);
+        }
+      });
+
+      setPreviewPlayer(player);
+      player.play();
+      setIsPreviewPlaying(true);
+    } catch (err) {
+      console.error("Failed to play preview", err);
+    }
+  };
+
+  const pausePreview = async () => {
+    if (previewPlayer) {
+      previewPlayer.pause();
+      setIsPreviewPlaying(false);
+    }
+  };
+
+  const resetRecording = async () => {
+    if (previewPlayer) {
+      previewPlayer.remove();
+      setPreviewPlayer(null);
+    }
+    setRecordedUri(null);
+    setRecordingDuration(0);
+    setIsPreviewPlaying(false);
+    setPreviewPosition(0);
+    update("duration", "");
+  };
+
+  const formatTime = (sec: number) => {
+    const m = Math.floor(sec / 60).toString().padStart(2, "0");
+    const s = (sec % 60).toString().padStart(2, "0");
+    return `${m}:${s}`;
+  };
+
   const submit = async () => {
+    if (uploadMode === "record" && !recordedUri) {
+      Alert.alert("Error", "Please record an audio note first");
+      return;
+    }
+    if (uploadMode === "file" && !form.duration) {
+      Alert.alert("Error", "Please specify the duration");
+      return;
+    }
+
     setLoading(true);
     const fd = new FormData();
     fd.append("title", form.title);
@@ -46,12 +231,30 @@ export function UploadEpisodeScreen() {
     fd.append("duration", String(parseInt(form.duration) * 60 || 0));
     fd.append("isPremium", String(form.isPremium));
     fd.append("difficulty", form.difficulty);
-    if (form.whatYoullLearn) form.whatYoullLearn.split("\n").forEach(l => fd.append("whatYoullLearn", l.trim()));
+    if (form.whatYoullLearn) {
+      form.whatYoullLearn.split("\n").forEach(l => fd.append("whatYoullLearn", l.trim()));
+    }
+
+    if (uploadMode === "record" && recordedUri) {
+      const filename = `recording_${Date.now()}.m4a`;
+      fd.append("audio", {
+        uri: recordedUri,
+        name: filename,
+        type: "audio/m4a",
+      } as any);
+    } else {
+      // Mock File Upload mode
+      fd.append("audio", {
+        uri: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+        name: "mock_revision_note.mp3",
+        type: "audio/mp3",
+      } as any);
+    }
 
     const res = await creatorApi.uploadEpisode(fd);
     setLoading(false);
     if (res.success) {
-      Alert.alert("Submitted!", "Your episode has been submitted for review. It will appear once approved.", [
+      Alert.alert("Submitted!", "Your audio note has been successfully saved!", [
         { text: "OK", onPress: () => nav.goBack() },
       ]);
     } else {
@@ -63,17 +266,88 @@ export function UploadEpisodeScreen() {
     switch (step) {
       case 0: return (
         <View style={s.stepContent}>
-          <Text style={s.stepTitle}>Audio File</Text>
-          <Text style={s.stepDesc}>Upload your audio revision notes. Max file size: 100MB.</Text>
-          <View style={s.uploadBox}>
-            <Text style={s.uploadIcon}>🎵</Text>
-            <Text style={s.uploadText}>Tap to select audio file</Text>
-            <Text style={s.uploadSub}>MP3, WAV, AAC supported</Text>
+          <Text style={s.stepTitle}>Audio Source</Text>
+          <Text style={s.stepDesc}>Record your revision note or upload an audio file.</Text>
+          
+          <View style={s.tabRow}>
+            <TouchableOpacity style={[s.tabButton, uploadMode === "record" && s.tabActive]} onPress={() => setUploadMode("record")}>
+              <Text style={[s.tabButtonText, uploadMode === "record" && s.tabButtonTextActive]}>Record Audio</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.tabButton, uploadMode === "file" && s.tabActive]} onPress={() => setUploadMode("file")}>
+              <Text style={[s.tabButtonText, uploadMode === "file" && s.tabButtonTextActive]}>Upload File</Text>
+            </TouchableOpacity>
           </View>
-          <View style={s.durationRow}>
-            <Text style={s.label}>Duration (minutes)</Text>
-            <TextInput style={s.input} value={form.duration} onChangeText={v => update("duration", v)} keyboardType="numeric" placeholder="e.g. 15" placeholderTextColor={Colors.textMuted} />
-          </View>
+
+          {uploadMode === "record" ? (
+            <View style={s.recorderContainer}>
+              <Text style={s.recordTimer}>{formatTime(recordingDuration)}</Text>
+              
+              {!recordedUri && !isRecording && (
+                <>
+                  <Text style={s.recordStatus}>Ready to record</Text>
+                  <TouchableOpacity style={s.recordBtn} onPress={startRecording}>
+                    <Text style={s.recordBtnText}>🎙️</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+
+              {isRecording && (
+                <>
+                  <View style={s.pulseCircle} />
+                  <Text style={s.recordStatus}>{isPaused ? "Recording Paused" : "Recording..."}</Text>
+                  <View style={s.controlRow}>
+                    <TouchableOpacity style={s.controlBtn} onPress={isPaused ? resumeRecording : pauseRecording}>
+                      <Text style={s.controlBtnText}>{isPaused ? "▶" : "⏸"}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[s.controlBtn, s.controlBtnPrimary]} onPress={stopRecording}>
+                      <Text style={[s.controlBtnText, { color: Colors.textInverse }]}>⏹</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+
+              {recordedUri && !isRecording && (
+                <>
+                  <Text style={s.recordStatus}>Recording Complete!</Text>
+                  
+                  <View style={s.previewContainer}>
+                    <View style={s.previewInfoRow}>
+                      <Text style={s.previewTitle}>Preview Note</Text>
+                      <Text style={s.previewDuration}>
+                        {formatTime(previewPosition)} / {formatTime(recordingDuration)}
+                      </Text>
+                    </View>
+                    <View style={s.progressBarContainer}>
+                      <View style={[s.progressBarFill, { width: `${recordingDuration > 0 ? (previewPosition / recordingDuration) * 100 : 0}%` as any }]} />
+                    </View>
+                    <View style={{ alignItems: "center", marginTop: 12 }}>
+                      <TouchableOpacity style={[s.controlBtn, s.controlBtnPrimary]} onPress={isPreviewPlaying ? pausePreview : playPreview}>
+                        <Text style={[s.controlBtnText, { color: Colors.textInverse }]}>{isPreviewPlaying ? "⏸" : "▶"}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  <View style={s.resetRow}>
+                    <TouchableOpacity style={s.resetBtn} onPress={resetRecording}>
+                      <Text style={s.resetBtnText}>🗑️ Delete & Record Again</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+            </View>
+          ) : (
+            <>
+              <View style={s.uploadBox}>
+                <Text style={s.uploadIcon}>🎵</Text>
+                <Text style={s.uploadText}>Selected: mock_revision_note.mp3</Text>
+                <Text style={s.uploadSub}>MP3, WAV, AAC supported</Text>
+              </View>
+              <View style={s.durationRow}>
+                <Text style={s.label}>Duration (minutes)</Text>
+                <TextInput style={s.input} value={form.duration} onChangeText={v => update("duration", v)} keyboardType="numeric" placeholder="e.g. 15" placeholderTextColor={Colors.textMuted} />
+              </View>
+            </>
+          )}
         </View>
       );
       case 1: return (
@@ -241,6 +515,42 @@ const s = StyleSheet.create({
   stepContent: { padding: Spacing.base, gap: Spacing.md },
   stepTitle: { fontSize: Typography.size.xl, fontWeight: Typography.weight.bold, color: Colors.textPrimary, marginBottom: Spacing.sm },
   stepDesc: { fontSize: Typography.size.base, color: Colors.textSecondary },
+
+  // Tab Selector
+  tabRow: { flexDirection: "row", backgroundColor: Colors.surface, borderRadius: Radius.lg, padding: 4, marginBottom: Spacing.md },
+  tabButton: { flex: 1, paddingVertical: Spacing.sm, alignItems: "center", borderRadius: Radius.md },
+  tabActive: { backgroundColor: Colors.surfaceElevated },
+  tabButtonText: { color: Colors.textSecondary, fontSize: Typography.size.sm, fontWeight: Typography.weight.semiBold },
+  tabButtonTextActive: { color: Colors.primary },
+
+  // Recorder Container
+  recorderContainer: { backgroundColor: Colors.surface, borderRadius: Radius.xl, padding: Spacing.xl, alignItems: "center", borderWidth: 1, borderColor: Colors.border, gap: Spacing.lg },
+  recordTimer: { fontSize: Typography.size["4xl"], fontWeight: Typography.weight.bold, color: Colors.textPrimary, letterSpacing: 1 },
+  recordStatus: { fontSize: Typography.size.sm, color: Colors.textMuted },
+  recordBtn: { width: 72, height: 72, borderRadius: 36, backgroundColor: Colors.error, justifyContent: "center", alignItems: "center" },
+  recordBtnText: { fontSize: 28 },
+  pulseCircle: { width: 90, height: 90, borderRadius: 45, backgroundColor: Colors.error + "22", position: "absolute", justifyContent: "center", alignItems: "center" },
+
+  // Control Buttons
+  controlRow: { flexDirection: "row", gap: Spacing.lg, alignItems: "center" },
+  controlBtn: { width: 50, height: 50, borderRadius: 25, backgroundColor: Colors.surfaceElevated, justifyContent: "center", alignItems: "center", borderWidth: 1, borderColor: Colors.border },
+  controlBtnText: { fontSize: Typography.size.lg, color: Colors.textPrimary },
+  controlBtnPrimary: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+
+  // Preview Player
+  previewContainer: { width: "100%", backgroundColor: Colors.surfaceElevated, borderRadius: Radius.lg, padding: Spacing.md, gap: Spacing.sm },
+  previewInfoRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  previewTitle: { color: Colors.textPrimary, fontWeight: Typography.weight.semiBold, fontSize: Typography.size.sm },
+  previewDuration: { color: Colors.textSecondary, fontSize: Typography.size.xs },
+  progressBarContainer: { height: 4, backgroundColor: Colors.border, borderRadius: 2, overflow: "hidden" },
+  progressBarFill: { height: "100%", backgroundColor: Colors.primary },
+
+  // Reset Row
+  resetRow: { flexDirection: "row", justifyContent: "flex-end", width: "100%" },
+  resetBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4, paddingHorizontal: Spacing.sm },
+  resetBtnText: { color: Colors.error, fontSize: Typography.size.xs, fontWeight: Typography.weight.semiBold },
+
+  // Standard Form items
   uploadBox: { backgroundColor: Colors.surface, borderRadius: Radius.xl, padding: Spacing["2xl"], alignItems: "center", borderWidth: 2, borderColor: Colors.border, borderStyle: "dashed" },
   uploadIcon: { fontSize: 40, marginBottom: Spacing.md },
   uploadText: { fontSize: Typography.size.base, fontWeight: Typography.weight.semiBold, color: Colors.textPrimary },

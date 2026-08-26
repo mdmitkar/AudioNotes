@@ -1,4 +1,4 @@
-﻿import React from "react";
+import React from "react";
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
@@ -46,9 +46,7 @@ export function ProfileScreen() {
         </View>
 
         <View style={s.section}>
-          {(user.role === "creator" || user.role === "admin") && (
-            <MenuItem icon="🎙️" label="Creator Dashboard" onPress={() => nav.navigate("CreatorDashboard")} />
-          )}
+          <MenuItem icon="🎙️" label="My Study Notes (Recorder)" onPress={() => nav.navigate("CreatorDashboard")} />
           {user.role === "admin" && (
             <MenuItem icon="⚙️" label="Admin Dashboard" onPress={() => nav.navigate("AdminDashboard")} />
           )}

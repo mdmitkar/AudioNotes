@@ -1,4 +1,4 @@
-﻿import { Router, Response } from "express";
+import { Router, Response } from "express";
 import Episode from "../models/Episode";
 import CreatorProfile from "../models/CreatorProfile";
 import { authenticate, AuthRequest } from "../middleware/authenticate";
@@ -8,7 +8,7 @@ import { storageService } from "../services/StorageService";
 const router = Router();
 
 router.use(authenticate);
-router.use(authorize("creator", "admin"));
+router.use(authorize("creator", "admin", "student"));
 
 // GET /api/creator/profile
 router.get("/profile", async (req: AuthRequest, res: Response): Promise<void> => {
@@ -113,7 +113,7 @@ router.post(
         topicId,
         duration: parseInt(duration) || 0,
         isPremium: isPremium === "true" || isPremium === true,
-        status: "pending",
+        status: "published",
         whatYoullLearn: learnItems,
         difficulty: difficulty || "intermediate",
       });

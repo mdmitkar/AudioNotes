@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, FlatList } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useRoute } from "@react-navigation/native";
@@ -151,7 +151,7 @@ const s = StyleSheet.create({
   searchBar: { flexDirection: "row", alignItems: "center", backgroundColor: Colors.surface, borderRadius: Radius.xl, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderWidth: 1, borderColor: Colors.border },
   searchInput: { flex: 1, color: Colors.textPrimary, fontSize: Typography.size.base },
   clearText: { color: Colors.textMuted, fontSize: Typography.size.base, paddingLeft: Spacing.sm },
-  filtersRow: { maxHeight: 44 },
+  filtersRow: { marginVertical: Spacing.xs },
   filtersContent: { paddingHorizontal: Spacing.base, gap: Spacing.sm, paddingVertical: Spacing.xs, alignItems: "center" },
   chip: { paddingHorizontal: Spacing.md, paddingVertical: 6, borderRadius: Radius.full, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border },
   chipActive: { backgroundColor: Colors.primaryMuted, borderColor: Colors.primary },

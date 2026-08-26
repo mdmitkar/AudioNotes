@@ -1,4 +1,4 @@
-﻿import { create } from "zustand";
+import { create } from "zustand";
 import {
   createAudioPlayer,
   setAudioModeAsync,
@@ -109,7 +109,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         await player.seekTo(startPosition);
       }
 
-      player.playbackRate = get().speed;
+      player.setPlaybackRate(get().speed);
 
       statusSubscription = player.addListener(
         "playbackStatusUpdate",
@@ -211,7 +211,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     set({ speed });
 
     if (soundObject) {
-      soundObject.playbackRate = speed;
+      soundObject.setPlaybackRate(speed);
     }
   },
 

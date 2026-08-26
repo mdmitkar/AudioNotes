@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, FlatList, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
@@ -138,8 +138,8 @@ const s = StyleSheet.create({
   backText: { color: Colors.textSecondary, fontSize: Typography.size.base, marginRight: Spacing.sm },
   title: { flex: 1, fontSize: Typography.size.xl, fontWeight: Typography.weight.bold, color: Colors.textPrimary },
   refreshText: { color: Colors.primary, fontSize: Typography.size.sm, fontWeight: Typography.weight.semiBold },
-  tabBar: { maxHeight: 44 },
-  tabContent: { paddingHorizontal: Spacing.base, gap: Spacing.sm, alignItems: "center" },
+  tabBar: { marginVertical: Spacing.xs },
+  tabContent: { paddingHorizontal: Spacing.base, gap: Spacing.sm, paddingVertical: Spacing.xs, alignItems: "center" },
   tabBtn: { paddingHorizontal: Spacing.md, paddingVertical: 8, borderRadius: Radius.full, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border },
   tabBtnActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
   tabBtnText: { fontSize: Typography.size.sm, color: Colors.textSecondary, fontWeight: Typography.weight.medium },
