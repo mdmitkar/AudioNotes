@@ -1,6 +1,42 @@
-﻿import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { NativeModules } from "react-native";
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:4000/api";
+const getApiBase = (): string => {
+  if (__DEV__) {
+    const scriptURL = NativeModules.SourceCode?.scriptURL;
+    if (scriptURL) {
+      const match = scriptURL.match(/^https?:\/\/([^:/]+)(:\d+)?/);
+      if (match) {
+        const host = match[1];
+        return `http://${host}:4000/api`;
+      }
+    }
+  }
+  return process.env.EXPO_PUBLIC_API_URL || "http://localhost:4000/api";
+};
+
+const API_BASE = getApiBase();
+
+const rewriteUrls = (data: any, apiBase: string): any => {
+  if (!data) return data;
+  const uploadBase = apiBase.replace(/\/api$/, "");
+  const rewriteString = (str: string): string => {
+    if (typeof str === "string" && str.includes("/uploads/")) {
+      return str.replace(/^https?:\/\/[^\/]+(?::\d+)?\/uploads\//, `${uploadBase}/uploads/`);
+    }
+    return str;
+  };
+  if (Array.isArray(data)) {
+    return data.map(item => rewriteUrls(item, apiBase));
+  } else if (typeof data === "object") {
+    const next: Record<string, any> = {};
+    for (const key of Object.keys(data)) {
+      next[key] = rewriteUrls(data[key], apiBase);
+    }
+    return next;
+  }
+  return rewriteString(data);
+};
 
 class ApiClient {
   private baseUrl: string;
@@ -43,12 +79,12 @@ class ApiClient {
           },
         });
         const retryData = await retryRes.json();
-        return retryData;
+        return rewriteUrls(retryData, this.baseUrl);
       }
     }
 
     const data = await res.json();
-    return data;
+    return rewriteUrls(data, this.baseUrl);
   }
 
   private async tryRefresh(): Promise<boolean> {
@@ -102,7 +138,8 @@ class ApiClient {
       headers,
       body: formData,
     });
-    return res.json();
+    const data = await res.json();
+    return rewriteUrls(data, this.baseUrl);
   }
 }
 
