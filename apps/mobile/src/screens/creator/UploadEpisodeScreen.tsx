@@ -4,8 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { creatorApi, examApi, subjectApi, topicApi } from "../../api";
 import { Colors, Typography, Spacing, Radius } from "../../theme";
-import { Audio } from "expo-av";
-import { createAudioPlayer } from "expo-audio";
+import { createAudioPlayer, useAudioRecorder, RecordingPresets, requestRecordingPermissionsAsync } from "expo-audio";
 
 const STEPS = ["Audio", "Title", "Description", "Exam", "Subject", "Topic", "Thumbnail", "Free/Premium", "Review", "Submit"];
 
@@ -23,7 +22,7 @@ export function UploadEpisodeScreen() {
   const [loading, setLoading] = useState(false);
 
   // Recorder states
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [recordedUri, setRecordedUri] = useState<string | null>(null);
@@ -59,9 +58,6 @@ export function UploadEpisodeScreen() {
   // Clean up recording and audio resources
   useEffect(() => {
     return () => {
-      if (recording) {
-        recording.stopAndUnloadAsync().catch(() => {});
-      }
       if (previewPlayer) {
         previewPlayer.remove();
       }
@@ -86,16 +82,11 @@ export function UploadEpisodeScreen() {
   // Recorder operations
   const startRecording = async () => {
     try {
-      const permission = await Audio.requestPermissionsAsync();
+      const permission = await requestRecordingPermissionsAsync();
       if (permission.status !== "granted") {
         Alert.alert("Permission Denied", "Microphone access is required to record audio.");
         return;
       }
-
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
 
       if (previewPlayer) {
         previewPlayer.remove();
@@ -104,10 +95,9 @@ export function UploadEpisodeScreen() {
         setPreviewPosition(0);
       }
 
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
-      setRecording(recording);
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+      
       setIsRecording(true);
       setIsPaused(false);
       setRecordingDuration(0);
@@ -119,9 +109,8 @@ export function UploadEpisodeScreen() {
   };
 
   const pauseRecording = async () => {
-    if (!recording) return;
     try {
-      await recording.pauseAsync();
+      recorder.pause();
       setIsPaused(true);
     } catch (err) {
       console.error("Failed to pause recording", err);
@@ -129,9 +118,8 @@ export function UploadEpisodeScreen() {
   };
 
   const resumeRecording = async () => {
-    if (!recording) return;
     try {
-      await recording.startAsync();
+      recorder.record();
       setIsPaused(false);
     } catch (err) {
       console.error("Failed to resume recording", err);
@@ -139,16 +127,12 @@ export function UploadEpisodeScreen() {
   };
 
   const stopRecording = async () => {
-    if (!recording) return;
     try {
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
-      setRecordedUri(uri);
-      setRecording(null);
+      await recorder.stop();
+      setRecordedUri(recorder.uri);
       setIsRecording(false);
       setIsPaused(false);
 
-      // Auto-populate duration in minutes (round up to nearest minute)
       const calculatedDurationMin = Math.max(1, Math.round(recordingDuration / 60));
       update("duration", String(calculatedDurationMin));
     } catch (err) {
